@@ -1,5 +1,5 @@
-import { AlertCircle, Check, Download, Film, Info, KeyRound, Settings, Sliders, Sparkles, X, Zap } from 'lucide-react'
-import React, { useEffect, useRef, useState } from 'react'
+import { AlertCircle, Check, Download, Film, Info, KeyRound, Layers, Settings, Sliders, Sparkles, X, Zap } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from './ui/button'
 import { useAppSettings, type AppSettings } from '../contexts/AppSettingsContext'
 import { logger } from '../lib/logger'
@@ -50,6 +50,13 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
   const [modelLicenseLoading, setModelLicenseLoading] = useState(false)
   const [showModelLicense, setShowModelLicense] = useState(false)
   const [analyticsEnabled, setAnalyticsEnabled] = useState(false)
+  const [modelsPath, setModelsPath] = useState<string | null>(null)
+  const [customModels, setCustomModels] = useState<Array<{ id: string; name: string; path: string; type: 'base' | 'lora' }>>([])
+  const [customModelsBaseDir, setCustomModelsBaseDir] = useState<string | null>(null)
+  const [customModelsError, setCustomModelsError] = useState<string | null>(null)
+  const [ggufDownloaded, setGgufDownloaded] = useState(false)
+  const [ggufDownloadPending, setGgufDownloadPending] = useState(false)
+  const [ggufDownloadError, setGgufDownloadError] = useState<string | null>(null)
 
   // Sync active tab with initialTab prop when modal opens
   useEffect(() => {
@@ -71,11 +78,18 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     }
   }, [activeTab, focusLtxApiKeyInputOnTabChange, isOpen])
 
-  // Fetch app version when About tab is shown
+  // Fetch app info (version + models path) when modal opens
   useEffect(() => {
-    if (activeTab !== 'about' || appVersion) return
-    window.electronAPI.getAppInfo().then(info => setAppVersion(info.version)).catch(() => {})
-  }, [activeTab, appVersion])
+    if (!isOpen) return
+    window.electronAPI.getAppInfo()
+      .then(info => {
+        if (!appVersion) {
+          setAppVersion(info.version)
+        }
+        setModelsPath(info.modelsPath)
+      })
+      .catch(() => {})
+  }, [isOpen, appVersion])
 
   // Fetch analytics state when modal opens
   useEffect(() => {
@@ -84,6 +98,42 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       .then((state: { analyticsEnabled: boolean }) => setAnalyticsEnabled(state.analyticsEnabled))
       .catch(() => {})
   }, [isOpen])
+
+  // Fetch custom models list when Inference tab is opened
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'inference') return
+
+    let cancelled = false
+    const fetchCustomModels = async () => {
+      try {
+        setCustomModelsError(null)
+        const backendUrl = await window.electronAPI.getBackendUrl()
+        const response = await fetch(`${backendUrl}/api/models/custom`)
+        if (!response.ok) {
+          throw new Error(`Custom models fetch failed with status ${response.status}`)
+        }
+        const data = (await response.json()) as {
+          models?: { id: string; name: string; path: string; type: 'base' | 'lora' }[]
+          base_dir?: string
+        }
+        if (cancelled) return
+        setCustomModels(Array.isArray(data.models) ? data.models : [])
+        setCustomModelsBaseDir(typeof data.base_dir === 'string' ? data.base_dir : null)
+      } catch (e) {
+        if (cancelled) return
+        setCustomModels([])
+        setCustomModelsBaseDir(null)
+        setCustomModelsError(e instanceof Error ? e.message : 'Failed to load custom models')
+        logger.error(`Failed to fetch custom models: ${e}`)
+      }
+    }
+
+    void fetchCustomModels()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, isOpen])
 
   // Fetch text encoder status when modal opens
   useEffect(() => {
@@ -97,6 +147,9 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
         if (response.ok) {
           const data = await response.json()
           setTextEncoderStatus(data.text_encoder_status)
+          const models = (data.models ?? []) as { name?: string; downloaded?: boolean }[]
+          const gguf = models.find((m) => m.name === 'Q4_K_M.gguf')
+          setGgufDownloaded(Boolean(gguf?.downloaded))
         }
       } catch (e) {
         logger.error(`Failed to fetch text encoder status: ${e}`)
@@ -148,8 +201,6 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
       setIsDownloading(false)
     }
   }
-
-  if (!isOpen) return null
 
   const handleToggleTorchCompile = () => {
     onSettingsChange({
@@ -271,6 +322,36 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     }
   }
 
+  const baseModels = useMemo(
+    () => customModels.filter((m) => m.type === 'base'),
+    [customModels],
+  )
+  const loraModels = useMemo(
+    () => customModels.filter((m) => m.type === 'lora'),
+    [customModels],
+  )
+
+  const handleCustomModelSelectionChange = async (baseId: string | null, loraId: string | null) => {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      await fetch(`${backendUrl}/api/models/selection`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          baseModelId: baseId,
+          loraId,
+        }),
+      })
+      onSettingsChange({
+        ...settings,
+        selectedBaseModel: baseId,
+        selectedLora: loraId,
+      })
+    } catch (e) {
+      logger.error(`Failed to save model selection: ${e}`)
+    }
+  }
+
   const tabs = [
     { id: 'general' as TabId, label: 'General', icon: Settings },
     { id: 'apiKeys' as TabId, label: 'API Keys', icon: KeyRound },
@@ -278,6 +359,8 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
     { id: 'promptEnhancer' as TabId, label: 'Prompt Enhancer', icon: Sparkles },
     { id: 'about' as TabId, label: 'About', icon: Info },
   ]
+
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -755,6 +838,53 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 </div>
 
               </div>
+
+              {/* Models directory */}
+              <div className="space-y-3 pt-4 border-t border-zinc-800">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <svg className="h-4 w-4 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                      </svg>
+                      <label className="text-sm font-medium text-white">
+                        Models directory
+                      </label>
+                    </div>
+                    <p className="text-xs text-zinc-500 leading-relaxed">
+                      Folder used to store base checkpoints and LoRA files. Changing this path requires restart to fully take effect.
+                    </p>
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={modelsPath ?? ''}
+                        placeholder="Not resolved yet"
+                        className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-100 truncate focus:outline-none"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs border-zinc-600 bg-zinc-800 hover:bg-zinc-700"
+                        onClick={async () => {
+                          try {
+                            const selected = await window.electronAPI.showOpenDirectoryDialog({
+                              title: 'Select models folder',
+                            })
+                            if (!selected) return
+                            const normalized = await window.electronAPI.setModelsPath(selected)
+                            setModelsPath(normalized)
+                          } catch (e) {
+                            logger.error(`Failed to change models directory: ${e}`)
+                          }
+                        }}
+                      >
+                        Change…
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </>
           )}
 
@@ -1049,12 +1179,186 @@ export function SettingsModal({ isOpen, onClose, initialTab }: SettingsModalProp
                 </div>
               </div>
 
-              {/* Info Box */}
-              <div className="bg-zinc-800/30 rounded-lg p-3 mt-4">
-                <p className="text-xs text-zinc-400">
-                  <span className="text-blue-400 font-medium">Tip:</span> Lower steps = faster but lower quality.
-                  Higher steps = better quality but slower.
+              {/* Custom Models & LoRA */}
+              <div className="space-y-3 pt-4 border-t border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-purple-400" />
+                  <h3 className="text-sm font-semibold text-white">Custom Models &amp; LoRA</h3>
+                </div>
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  Select custom base checkpoints and LoRA adapters discovered in your models directory. This selection is
+                  stored in settings for use by advanced pipelines or custom forks of LTX-2.
                 </p>
+
+                {customModelsError && (
+                  <div className="bg-red-500/10 border border-red-500/40 rounded-lg px-3 py-2 text-xs text-red-300">
+                    {customModelsError}
+                  </div>
+                )}
+
+                {baseModels.length === 0 && loraModels.length === 0 && !customModelsError && (
+                  <div className="bg-zinc-800/40 border border-zinc-700/60 rounded-lg px-3 py-3 text-xs text-zinc-400 space-y-1.5">
+                    <p className="font-medium text-zinc-300">No custom models detected</p>
+                    <p>
+                      Place base model folders under
+                      {customModelsBaseDir ? (
+                        <span className="font-mono text-[11px] text-zinc-300">
+                          {' '}
+                          {customModelsBaseDir}
+                          {'/custom-models'}
+                        </span>
+                      ) : (
+                        ' the models directory /custom-models'
+                      )}
+                      , and LoRA files or folders under
+                      {customModelsBaseDir ? (
+                        <span className="font-mono text-[11px] text-zinc-300">
+                          {' '}
+                          {customModelsBaseDir}
+                          {'/ic-loras'}
+                        </span>
+                      ) : (
+                        ' /ic-loras'
+                      )}
+                      . Then reopen this tab.
+                    </p>
+                  </div>
+                )}
+
+                {(baseModels.length > 0 || loraModels.length > 0) && (
+                  <div className="bg-zinc-800/40 border border-zinc-700/60 rounded-lg px-4 py-3 space-y-3">
+                    {baseModels.length > 0 && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-zinc-200">Base Model</label>
+                        <select
+                          value={settings.selectedBaseModel ?? ''}
+                          onChange={(e) => {
+                            const value = e.target.value || null
+                            void handleCustomModelSelectionChange(value, settings.selectedLora ?? null)
+                          }}
+                          className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Default (built-in LTX-2)</option>
+                          {baseModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {loraModels.length > 0 && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-zinc-200">LoRA</label>
+                        <select
+                          value={settings.selectedLora ?? ''}
+                          onChange={(e) => {
+                            const value = e.target.value || null
+                            void handleCustomModelSelectionChange(settings.selectedBaseModel ?? null, value)
+                          }}
+                          className="w-full px-3 py-1.5 bg-zinc-900 border border-zinc-700 rounded-lg text-xs text-zinc-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">None</option>
+                          {loraModels.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-zinc-500">
+                      Note: current pipelines in this build do not yet switch checkpoints/LoRA automatically; this selection
+                      is persisted for advanced/custom integrations.
+                    </p>
+                  </div>
+                )}
+
+              </div>
+
+              {/* GGUF Q4_K_M checkpoint */}
+              <div className="space-y-3 pt-4 border-t border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <svg className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-3.5L6 21l1.5-7.5L2 9h7z" />
+                  </svg>
+                  <h3 className="text-sm font-semibold text-white">GGUF Q4_K_M Checkpoint</h3>
+                </div>
+                <p className="text-xs text-zinc-500 leading-relaxed">
+                  Optional quantized checkpoint <span className="font-mono text-[11px] text-zinc-200">Q4_K_M.gguf</span> from
+                  {' '}
+                  <span className="font-mono text-[11px] text-zinc-200">Lightricks/LTX-2.3</span>. Downloaded next to other models.
+                </p>
+
+                <div className="bg-zinc-800/40 border border-zinc-700/60 rounded-lg px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-zinc-300">
+                      Status:{' '}
+                      {ggufDownloaded ? (
+                        <span className="text-emerald-400">downloaded</span>
+                      ) : ggufDownloadPending ? (
+                        <span className="text-blue-400">downloading…</span>
+                      ) : (
+                        <span className="text-zinc-400">not downloaded</span>
+                      )}
+                    </div>
+                    <button
+                      disabled={ggufDownloaded || ggufDownloadPending}
+                      onClick={async () => {
+                        try {
+                          setGgufDownloadPending(true)
+                          setGgufDownloadError(null)
+                          const backendUrl = await window.electronAPI.getBackendUrl()
+                          const res = await fetch(`${backendUrl}/api/models/gguf/download`, { method: 'POST' })
+                          if (!res.ok) {
+                            const text = await res.text()
+                            throw new Error(text || 'Failed to start GGUF download')
+                          }
+                        } catch (e) {
+                          setGgufDownloadError(e instanceof Error ? e.message : 'Download failed')
+                        } finally {
+                          setGgufDownloadPending(false)
+                        }
+                      }}
+                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                        ggufDownloaded
+                          ? 'bg-zinc-700 text-zinc-400 cursor-default'
+                          : 'bg-blue-600 hover:bg-blue-500 text-white disabled:bg-zinc-700 disabled:text-zinc-500'
+                      }`}
+                    >
+                      {ggufDownloaded ? 'Downloaded' : ggufDownloadPending ? 'Starting…' : 'Download Q4_K_M.gguf'}
+                    </button>
+                  </div>
+                  {ggufDownloadError && (
+                    <p className="text-[11px] text-red-400">{ggufDownloadError}</p>
+                  )}
+                  <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1 border-t border-zinc-800/80">
+                    <span>Use in pipelines (advanced)</span>
+                    <button
+                      onClick={() =>
+                        onSettingsChange({
+                          ...settings,
+                          useGgufQ4: !settings.useGgufQ4,
+                        })
+                      }
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        settings.useGgufQ4 ? 'bg-emerald-500' : 'bg-zinc-700'
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                          settings.useGgufQ4 ? 'translate-x-4' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    Note: enabling this flag only stores a preference; actual GGUF loading must be implemented in custom pipelines.
+                  </p>
+                </div>
+
               </div>
             </>
           )}

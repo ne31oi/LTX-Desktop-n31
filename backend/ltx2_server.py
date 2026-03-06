@@ -149,7 +149,11 @@ def _resolve_app_data_dir() -> Path:
 
 APP_DATA_DIR = _resolve_app_data_dir()
 
-MODELS_DIR = APP_DATA_DIR / "models"
+_models_dir_override = os.environ.get("LTX_MODELS_DIR")
+if _models_dir_override:
+    MODELS_DIR = Path(_models_dir_override)
+else:
+    MODELS_DIR = APP_DATA_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 PROJECT_ROOT = Path(__file__).parent.parent

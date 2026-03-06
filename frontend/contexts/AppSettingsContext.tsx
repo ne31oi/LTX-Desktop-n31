@@ -24,6 +24,9 @@ export interface AppSettings {
   promptEnhancerEnabledI2V: boolean
   seedLocked: boolean
   lockedSeed: number
+  selectedBaseModel?: string | null
+  selectedLora?: string | null
+  useGgufQ4?: boolean
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -41,6 +44,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   promptEnhancerEnabledI2V: false,
   seedLocked: false,
   lockedSeed: 42,
+  selectedBaseModel: null,
+  selectedLora: null,
+  useGgufQ4: false,
 }
 
 type BackendProcessStatus = 'alive' | 'restarting' | 'dead'
@@ -91,6 +97,9 @@ function normalizeAppSettings(data: Partial<AppSettings>): AppSettings {
     promptEnhancerEnabledI2V: data.promptEnhancerEnabledI2V ?? DEFAULT_APP_SETTINGS.promptEnhancerEnabledI2V,
     seedLocked: data.seedLocked ?? DEFAULT_APP_SETTINGS.seedLocked,
     lockedSeed: data.lockedSeed ?? DEFAULT_APP_SETTINGS.lockedSeed,
+    selectedBaseModel: data.selectedBaseModel ?? DEFAULT_APP_SETTINGS.selectedBaseModel,
+    selectedLora: data.selectedLora ?? DEFAULT_APP_SETTINGS.selectedLora,
+    useGgufQ4: data.useGgufQ4 ?? DEFAULT_APP_SETTINGS.useGgufQ4,
   }
 }
 

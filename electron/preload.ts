@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Paths
   getDownloadsPath: (): Promise<string> => ipcRenderer.invoke('get-downloads-path'),
+  setModelsPath: (modelsPath: string): Promise<string> =>
+    ipcRenderer.invoke('set-models-path', modelsPath),
   ensureDirectory: (dirPath: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('ensure-directory', dirPath),
 
@@ -161,6 +163,7 @@ declare global {
       openLogFolder: () => Promise<boolean>
       getResourcePath: () => Promise<string | null>
       getDownloadsPath: () => Promise<string>
+      setModelsPath: (modelsPath: string) => Promise<string>
       ensureDirectory: (dirPath: string) => Promise<{ success: boolean; error?: string }>
       getProjectsDir: () => Promise<string>
       loadAllProjects: () => Promise<unknown[]>

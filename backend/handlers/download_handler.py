@@ -280,3 +280,42 @@ class DownloadHandler(StateHandlerBase):
             daemon=True,
         )
         return True
+
+    def start_gguf_q4_download(self) -> bool:
+        """Start background download of optional GGUF Q4_K_M checkpoint."""
+        with self._lock:
+            if self.state.is_downloading:
+                return False
+
+        def worker() -> None:
+            spec = self._config.spec_for("gguf_q4")
+            self.start_download({"gguf_q4": (spec.name, spec.expected_size_bytes)})
+            progress_cb = self._make_progress_callback("gguf_q4")
+            try:
+                self._config.downloading_dir.mkdir(parents=True, exist_ok=True)
+                self._model_downloader.download_file(
+                    repo_id=spec.repo_id,
+                    filename=spec.name,
+                    local_dir=str(self._config.downloading_path("gguf_q4")),
+                    on_progress=progress_cb,
+                )
+                self._move_to_final("gguf_q4")
+            except Exception:
+                self.cleanup_downloading_dir()
+                raise
+            self.update_file_progress(
+                "gguf_q4",
+                spec.expected_size_bytes,
+                spec.expected_size_bytes,
+                0,
+            )
+            self.complete_file("gguf_q4")
+            self._models_handler.refresh_available_files()
+
+        self._task_runner.run_background(
+            worker,
+            task_name="gguf-q4-download",
+            on_error=self._on_background_download_error,
+            daemon=True,
+        )
+        return True

@@ -195,7 +195,22 @@ function AppContent() {
       throw new Error(`Model status fetch failed with status ${response.status}`)
     }
     const payload = (await response.json()) as { all_downloaded?: boolean }
-    return payload.all_downloaded === true
+    if (payload.all_downloaded === true) {
+      return true
+    }
+
+    // Fallback: if user has provided custom base models, treat them as satisfying the gate.
+    try {
+      const customRes = await fetch(`${backendUrl}/api/models/custom`)
+      if (!customRes.ok) {
+        return false
+      }
+      const custom = (await customRes.json()) as { models?: { type?: string }[] }
+      const hasBase = Array.isArray(custom.models) && custom.models.some((m) => m.type === 'base')
+      return hasBase
+    } catch {
+      return false
+    }
   }, [])
 
   const handleMissingModelsComplete = useCallback(async () => {
@@ -266,10 +281,7 @@ function AppContent() {
     </div>
   ) : null
 
-  const showGlobalControls =
-    currentView !== 'home' &&
-    setupState !== 'loading' &&
-    (!setupState.needsSetup || isOfflineMode)
+  const showGlobalControls = setupState !== 'loading'
   const shouldBlockUntilSettingsLoaded = forceApiGenerations && !isLoaded && !isOfflineMode && processStatus === 'alive'
   const shouldShowForcedFirstRunUpsell = isForcedFirstRun && isLoaded && !settings.hasLtxApiKey
   const shouldShowGlobalForcedUpsell = forceApiGenerations && setupState !== 'loading' && !setupState.needsSetup && isLoaded && !settings.hasLtxApiKey
@@ -429,14 +441,6 @@ function AppContent() {
         }
       />
     )
-  }
-
-  if (setupState.needsSetup && !forceApiGenerations && !isOfflineMode) {
-    return <LaunchGate showLicenseStep={false} onComplete={handleFirstRunComplete} />
-  }
-
-  if (requiredModelsGate === 'missing' && !isOfflineMode) {
-    return <LaunchGate showLicenseStep={false} onComplete={handleMissingModelsComplete} />
   }
 
   const renderView = () => {

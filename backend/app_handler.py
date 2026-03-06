@@ -91,6 +91,7 @@ class AppHandler:
                 "upsampler": None,
                 "text_encoder": None,
                 "zit": None,
+                "gguf_q4": None,
             },
             downloading_session=None,
             gpu_slot=None,

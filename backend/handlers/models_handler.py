@@ -6,7 +6,13 @@ from pathlib import Path
 from threading import RLock
 from typing import TYPE_CHECKING
 
-from api_types import ModelFileStatus, ModelInfo, ModelsStatusResponse, TextEncoderStatus
+from api_types import (
+    CustomModelInfo,
+    ModelFileStatus,
+    ModelInfo,
+    ModelsStatusResponse,
+    TextEncoderStatus,
+)
 from handlers.base import StateHandlerBase, with_state_lock
 from runtime_config.model_download_specs import MODEL_FILE_ORDER, resolve_required_model_types
 from state.app_state_types import AppState, AvailableFiles
@@ -135,3 +141,56 @@ class ModelsHandler(StateHandlerBase):
             text_encoder_status=self.get_text_encoder_status(),
             use_local_text_encoder=settings.use_local_text_encoder,
         )
+
+    def list_custom_models(self) -> list[CustomModelInfo]:
+        """Scan filesystem for user-provided base models and LoRAs."""
+        models: list[CustomModelInfo] = []
+
+        # Base models: any non-empty subdirectory under models_dir/custom-models
+        base_root = self._config.models_dir / "custom-models"
+        if base_root.exists():
+            for entry in base_root.iterdir():
+                if entry.is_dir():
+                    try:
+                        has_files = any(child.is_file() for child in entry.rglob("*"))
+                    except Exception:
+                        has_files = False
+                    if has_files:
+                        models.append(
+                            CustomModelInfo(
+                                id=f"base:{entry.name}",
+                                name=entry.name,
+                                path=str(entry),
+                                type="base",
+                            )
+                        )
+
+        # LoRAs: files or non-empty folders inside ic_lora_dir
+        lora_root = self._config.ic_lora_dir
+        if lora_root.exists():
+            for entry in lora_root.iterdir():
+                if entry.is_file():
+                    models.append(
+                        CustomModelInfo(
+                            id=f"lora:{entry.name}",
+                            name=entry.name,
+                            path=str(entry),
+                            type="lora",
+                        )
+                    )
+                elif entry.is_dir():
+                    try:
+                        has_files = any(child.is_file() for child in entry.rglob("*"))
+                    except Exception:
+                        has_files = False
+                    if has_files:
+                        models.append(
+                            CustomModelInfo(
+                                id=f"lora:{entry.name}",
+                                name=entry.name,
+                                path=str(entry),
+                                type="lora",
+                            )
+                        )
+
+        return models

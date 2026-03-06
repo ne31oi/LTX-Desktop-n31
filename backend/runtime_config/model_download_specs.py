@@ -27,6 +27,7 @@ MODEL_FILE_ORDER: tuple[ModelFileType, ...] = (
     "upsampler",
     "text_encoder",
     "zit",
+    "gguf_q4",
 )
 
 
@@ -58,6 +59,13 @@ DEFAULT_MODEL_DOWNLOAD_SPECS: dict[ModelFileType, ModelFileDownloadSpec] = {
         is_folder=True,
         repo_id="Tongyi-MAI/Z-Image-Turbo",
         description="Z-Image-Turbo model for text-to-image generation",
+    ),
+    "gguf_q4": ModelFileDownloadSpec(
+        relative_path=Path("Q4_K_M.gguf"),
+        expected_size_bytes=10_000_000_000,
+        is_folder=False,
+        repo_id="Lightricks/LTX-2.3",
+        description="Optional quantized GGUF Q4_K_M checkpoint",
     ),
 }
 

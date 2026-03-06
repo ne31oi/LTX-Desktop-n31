@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import path from 'path'
 import os from 'os'
+import fs from 'fs'
 
 export const APP_FOLDER_NAME = 'LTXDesktop'
 
@@ -29,4 +30,37 @@ export function getAppDataDir(): string {
 
 export function getLogDir(): string {
   return path.join(app.getPath('userData'), 'logs')
+}
+
+function getAppStatePath(): string {
+  return path.join(app.getPath('userData'), 'app_state.json')
+}
+
+export function getModelsDir(): string {
+  const fallback = path.join(app.getPath('userData'), 'models')
+
+  try {
+    const settingsPath = getAppStatePath()
+    if (fs.existsSync(settingsPath)) {
+      const raw = fs.readFileSync(settingsPath, 'utf-8')
+      const data = JSON.parse(raw) as { modelsPathOverride?: unknown }
+      const override =
+        typeof data.modelsPathOverride === 'string' && data.modelsPathOverride.trim().length > 0
+          ? data.modelsPathOverride.trim()
+          : null
+
+      const basePath = override ?? fallback
+      if (!fs.existsSync(basePath)) {
+        fs.mkdirSync(basePath, { recursive: true })
+      }
+      return basePath
+    }
+  } catch {
+    // Fall through to fallback path on any error
+  }
+
+  if (!fs.existsSync(fallback)) {
+    fs.mkdirSync(fallback, { recursive: true })
+  }
+  return fallback
 }

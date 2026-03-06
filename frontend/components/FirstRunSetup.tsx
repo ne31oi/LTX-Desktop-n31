@@ -484,7 +484,21 @@ export function LaunchGate({
                   />
                   <button
                     onClick={async () => {
-                      // Would open folder dialog in real implementation
+                      try {
+                        const selected = await window.electronAPI.showOpenDirectoryDialog({
+                          title: 'Select models folder',
+                        })
+                        if (selected) {
+                          setInstallPath(selected)
+                          try {
+                            await window.electronAPI.setModelsPath(selected)
+                          } catch (e) {
+                            logger.error(`Failed to persist models path: ${e}`)
+                          }
+                        }
+                      } catch (e) {
+                        logger.error(`Failed to open directory picker: ${e}`)
+                      }
                     }}
                     style={{
                       padding: '10px 28px',

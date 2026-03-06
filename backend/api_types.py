@@ -147,6 +147,18 @@ class ModelsStatusResponse(BaseModel):
     use_local_text_encoder: bool
 
 
+class CustomModelInfo(BaseModel):
+    id: str
+    name: str
+    path: str
+    type: Literal["base", "lora"]
+
+
+class CustomModelsListResponse(BaseModel):
+    models: list[CustomModelInfo]
+    base_dir: str
+
+
 class DownloadProgressResponse(BaseModel):
     status: str
     currentFile: str
@@ -266,6 +278,11 @@ class GenerateImageRequest(BaseModel):
 
 class ModelDownloadRequest(BaseModel):
     skipTextEncoder: bool = False
+
+
+class ModelSelectionRequest(BaseModel):
+    baseModelId: str | None = None
+    loraId: str | None = None
 
 
 class SuggestGapPromptRequest(BaseModel):

@@ -7,14 +7,7 @@ import { isPythonReady, downloadPythonEmbed } from '../python-setup'
 import { getBackendHealthStatus, startPythonBackend } from '../python-backend'
 import { getMainWindow } from '../window'
 import { getAnalyticsState, setAnalyticsEnabled, sendAnalyticsEvent } from '../analytics'
-
-function getModelsPath(): string {
-  const modelsPath = path.join(app.getPath('userData'), 'models')
-  if (!fs.existsSync(modelsPath)) {
-    fs.mkdirSync(modelsPath, { recursive: true })
-  }
-  return modelsPath
-}
+import { getAppDataDir, getModelsDir } from '../app-paths'
 
 function getSetupStatus(settingsPath: string): { needsSetup: boolean; needsLicense: boolean } {
   if (!fs.existsSync(settingsPath)) {
@@ -67,13 +60,33 @@ function markLicenseAccepted(settingsPath: string): void {
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
 }
 
+function getAppStatePath(): string {
+  return path.join(getAppDataDir(), 'app_state.json')
+}
+
+function persistModelsPathOverride(modelsPath: string): void {
+  const settingsPath = getAppStatePath()
+  let settings: Record<string, unknown> = {}
+
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'))
+    }
+  } catch {
+    settings = {}
+  }
+
+  settings.modelsPathOverride = modelsPath
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2))
+}
+
 export function registerAppHandlers(): void {
   ipcMain.handle('get-backend-url', () => {
     return BACKEND_BASE_URL
   })
 
   ipcMain.handle('get-models-path', () => {
-    return getModelsPath()
+    return getModelsDir()
   })
 
   ipcMain.handle('check-gpu', async () => {
@@ -84,7 +97,7 @@ export function registerAppHandlers(): void {
     return {
       version: app.getVersion(),
       isPackaged: app.isPackaged,
-      modelsPath: getModelsPath(),
+      modelsPath: getModelsDir(),
       userDataPath: app.getPath('userData'),
     }
   })
@@ -94,20 +107,32 @@ export function registerAppHandlers(): void {
   })
 
   ipcMain.handle('check-first-run', () => {
-    const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
+    const settingsPath = getAppStatePath()
     return getSetupStatus(settingsPath)
   })
 
   ipcMain.handle('accept-license', () => {
-    const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
+    const settingsPath = getAppStatePath()
     markLicenseAccepted(settingsPath)
     return true
   })
 
   ipcMain.handle('complete-setup', () => {
-    const settingsPath = path.join(app.getPath('userData'), 'app_state.json')
+    const settingsPath = getAppStatePath()
     markSetupComplete(settingsPath)
     return true
+  })
+
+  ipcMain.handle('set-models-path', (_event, modelsPath: string) => {
+    if (typeof modelsPath !== 'string' || !modelsPath.trim()) {
+      throw new Error('Invalid models path')
+    }
+    const normalized = path.resolve(modelsPath.trim())
+    if (!fs.existsSync(normalized)) {
+      fs.mkdirSync(normalized, { recursive: true })
+    }
+    persistModelsPathOverride(normalized)
+    return normalized
   })
 
   ipcMain.handle('fetch-license-text', async () => {

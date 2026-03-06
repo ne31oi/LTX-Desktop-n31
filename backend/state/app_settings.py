@@ -74,6 +74,9 @@ class AppSettings(SettingsBaseModel):
     gemini_api_key: str = ""
     seed_locked: bool = False
     locked_seed: int = 42
+    use_gguf_q4: bool = False
+    selected_base_model: str | None = None
+    selected_lora: str | None = None
 
     @field_validator("prompt_cache_size", mode="before")
     @classmethod
@@ -145,6 +148,9 @@ class SettingsResponse(SettingsBaseModel):
     has_gemini_api_key: bool = False
     seed_locked: bool = False
     locked_seed: int = 42
+    use_gguf_q4: bool = False
+    selected_base_model: str | None = None
+    selected_lora: str | None = None
 
 
 def to_settings_response(settings: AppSettings) -> SettingsResponse:
